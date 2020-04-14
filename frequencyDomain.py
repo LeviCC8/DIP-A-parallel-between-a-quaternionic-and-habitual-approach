@@ -41,22 +41,22 @@ def butterworthFilter(F, D, order, band):
 	H[:,:,1] = H[:,:,2] = H[:,:,0]
 	return H if band == 'lowPass' else 1 - H
 
-f = cv2.imread("cat.png", -1)
+f = cv2.imread("images/cat.png", -1)
 fp = centralizeTransform(fillZeros(f))
 F = fftn(fp) 
 
 H = idealFilter(F, 50, 'highPass')
 g = imageFiltration(F, H)[:len(f), :len(f[0]), :]
-cv2.imwrite('idealHighPass.png', g)
+cv2.imwrite('images/idealHighPass.png', g)
 
 H = idealFilter(F, 50, 'lowPass')
 g = imageFiltration(F, H)[:len(f), :len(f[0]), :]
-cv2.imwrite('idealLowPass.png', g)
+cv2.imwrite('images/idealLowPass.png', g)
 
 H = butterworthFilter(F, 50, 2, 'highPass')
 g = imageFiltration(F, H)[:len(f), :len(f[0]), :]
-cv2.imwrite('butterworthHighPass.png', g)
+cv2.imwrite('images/butterworthHighPass.png', g)
 
 H = butterworthFilter(F, 50, 2, 'lowPass')
 g = imageFiltration(F, H)[:len(f), :len(f[0]), :]
-cv2.imwrite('butterworthLowPass.png', g)
+cv2.imwrite('images/butterworthLowPass.png', g)
