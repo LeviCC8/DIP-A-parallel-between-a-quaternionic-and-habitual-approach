@@ -24,6 +24,6 @@ def imageFiltration(f, w):
 
 
 w = np.ones((3,3))*1/9
-f = cv2.imread("cat.png", -1)
+f = cv2.imread("images/cat.png", -1)
 g = imageFiltration(f,w)
-cv2.imwrite('pixelAverage.png', g)
+cv2.imwrite('images/pixelAverage.png', g)
