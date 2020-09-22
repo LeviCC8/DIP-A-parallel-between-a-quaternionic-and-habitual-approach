@@ -4,87 +4,69 @@ from quaternions import quaternion_filtration
 from frequencyDomain import habitual_filtration
 import cv2
 import argparse
+import numpy as np
 
-# DataSet used: LIVE Image Quality Assessment Database
-parser = argparse.ArgumentParser(description='Generate a csv file with metrics to habitual and quaternionic approach')
-parser.add_argument('dir_original_images_path', help='Path to original images directory')
-parser.add_argument('dirs_modified_images_path', help='Path to dir with modified images directories')
+
+parser = argparse.ArgumentParser(description='Generate a csv file with habitual and quaternionic approach '
+                                             'processing time to the 4 used filters.')
+parser.add_argument('path_input', help='Path to input images directory.')
+parser.add_argument('path_output', help='Path to output images directory.')
 
 
 def generate_dataframe(args):
-    dir_original_images_path = args.dir_original_images_path
-    dirs_modified_images_path = args.dirs_modified_images_path
+    path_input = args.path_input
+    path_output = args.path_output
 
-    df = pd.DataFrame(
-        {'Problem': [], 'Quaternion_RMSE': [], 'Habitual_RMSE': [], 'Quaternion_SSIM': [], 'Habitual_SSIM': [],
-         'Quaternion_Time': [], 'Habitual_Time': []})
-    dirs = os.listdir(dirs_modified_images_path)
 
     filters = [
         {'name': 'ideal_filter', 'band': 'low_pass'},
-        {},
-        {},
-        {},
-        {},
-        {}
+        {'name': 'ideal_filter', 'band': 'high_pass'},
+        {'name': 'butterworth_filter', 'band': 'low_pass'},
+        {'name': 'butterworth_filter', 'band': 'high_pass'}
     ]
 
-    for dir in dirs:
-        if not os.path.isdir(dir):
+    dict_aux = dict()
+
+    for filter in filters:
+        directory_output = os.path.join(path_output, 'quaternion', f"{filter['name']}_{filter['band']}")
+        if not os.path.exists(directory_output):
+          os.makedirs(directory_output)
+          os.makedirs(directory_output.replace('quaternion', 'habitual'))
+
+        habitual_time, quaternion_time = calculate_processing_time(path_input,
+                                                              directory_output,
+                                                              filter)
+
+        dict_aux[f"{filter['name']}_{filter['band']}"] = [habitual_time, quaternion_time]
+
+    df = pd.DataFrame()
+    for key in dict_aux.keys():
+      df[key] = dict_aux[key]
+    df.to_csv('time.csv', index=False)
+
+
+def calculate_processing_time(dir_input, dir_output, image_filter):
+    habitual_time_list = []
+    quaternion_time_list = []
+    for image_name in os.listdir(dir_input):
+        if not image_name.endswith('.bmp'):
             continue
-        quaternion_metric, habitual_metric = generate_metrics(dir_original_images_path,
-                                                              os.path.join(dirs_modified_images_path, dir),
-                                                              filters.pop(0))
-        df.append([dir, quaternion_metric['rmse'], habitual_metric['rmse'],
-                   quaternion_metric['ssim'], habitual_metric['ssim'],
-                   quaternion_metric['time'], habitual_metric['time']])
-    df.to_csv('metrics.csv', index=False)
+        image = cv2.imread(os.path.join(dir_input, image_name))
 
+        habitual_image, habitual_time = habitual_filtration(image, image_filter)
+        habitual_time_list.append(habitual_time)
+        cv2.imwrite(os.path.join(dir_output.replace('quaternion', 'habitual'), image_name), habitual_image)
 
-def generate_metrics(dir_original_images, dir_modified_images, filter):
-    images = os.listdir(dir_modified_images)
-    images_relation = images.pop(
-        images.index('info.txt'))  # a link of modified images with its respective original images
-    with open(os.path.join(dir_modified_images, images_relation)) as f:
-        lines = f.readlines()
-    df_images_relation = pd.DataFrame(
-        {'Original': [x.split()[0] for x in lines], 'Modified': [x.split()[1] for x in lines]})
+        quaternion_image, quaternion_time = quaternion_filtration(image, image_filter)
+        quaternion_time_list.append(quaternion_time)
+        cv2.imwrite(os.path.join(dir_output, image_name), quaternion_image)
+        print(habitual_time, quaternion_time)
+        assert np.equal(habitual_image, quaternion_image).all(), 'The resulting images should be the same'
 
-    quaternion_metric_values = {'rmse': [], 'ssim': [], 'time': []}
-    habitual_metric_values = {'rmse': [], 'ssim': [], 'time': []}
+    habitual_mean = sum(habitual_time_list)/len(habitual_time_list)
+    quaternion_mean = sum(quaternion_time_list)/len(quaternion_time_list)
 
-    for image_name in images:
-        image = cv2.imread(os.path.join(dir_modified_images, image_name))
-        original_image_path = os.path.join(dir_original_images,
-                                           df_images_relation[df_images_relation['Modified'] == image_name]['Original'])
-        original_image = cv2.imread(original_image_path)
-
-        quaternion_filtered_image, quaternion_time = quaternion_filtration(image, filter)
-        habitual_filtered_image, habitual_time = habitual_filtration(image, filter)
-
-        quaternion_metric_values['rmse'].append(rmse(original_image, quaternion_filtered_image))
-        quaternion_metric_values['ssim'].append(ssim(original_image, quaternion_filtered_image))
-        quaternion_metric_values['time'].append(quaternion_time)
-        habitual_metric_values['rmse'].append(rmse(original_image, habitual_filtered_image))
-        habitual_metric_values['ssim'].append(ssim(original_image, habitual_filtered_image))
-        habitual_metric_values['time'].append(habitual_time)
-
-    quaternion_metric = {'rmse': sum(quaternion_metric_values['rmse']) / len(quaternion_metric_values['rmse']),
-                         'ssim': sum(quaternion_metric_values['ssim']) / len(quaternion_metric_values['ssim']),
-                         'time': sum(quaternion_metric_values['time']) / len(quaternion_metric_values['time'])}
-    habitual_metric = {'rmse': sum(habitual_metric_values['rmse']) / len(habitual_metric_values['rmse']),
-                       'ssim': sum(habitual_metric_values['ssim']) / len(habitual_metric_values['ssim']),
-                       'time': sum(quaternion_metric_values['time']) / len(quaternion_metric_values['time'])}
-
-    return quaternion_metric, habitual_metric
-
-
-def rmse(image1, image2):
-    pass
-
-
-def ssim(image1, image2):
-    pass
+    return habitual_mean, quaternion_mean
 
 
 if __name__ == '__main__':
