@@ -1,51 +1,49 @@
 import numpy as np
-import cv2
 from scipy.fftpack import fftn, ifftn
 import quaternion
+import time
 
 
 def rgb_to_quaternions(image):
-    q = np.zeros((len(image), len(image[0])), dtype=quaternion.quaternion)
-    for i in range(len(image)):
-        for j in range(len(image[0])):
-            q[i][j] = np.quaternion(0, image[i][j][0], image[i][j][1], image[i][j][2])
+    def aux(axis):
+      return np.quaternion(0, axis[0], axis[1], axis[2])
+    q = np.apply_along_axis(aux, 2, image)
     return q
 
 
 def quaternions_to_rgb(q):
-    f = np.zeros((len(q), len(q[0]), 3))
-    for i in range(len(q)):
-        for j in range(len(q[0])):
-            t, f[i][j][0], f[i][j][1], f[i][j][2] = q[i][j].components
-    return f
+    return quaternion.as_float_array(q)[:,:,1:]
 
 
 def quaternions_to_complex(q):
-    i1 = np.zeros((len(q), len(q[0])), dtype=np.cfloat)
-    i2 = np.zeros((len(q), len(q[0])), dtype=np.cfloat)
-    for i in range(len(q)):
-        for j in range(len(q[0])):
-            i1[i][j] = q[i][j].a
-            i2[i][j] = q[i][j].b
+    float_array = quaternion.as_float_array(q)
+    i1 = float_array[..., 0] + 1j * float_array[..., 2]
+    i2 = float_array[..., 1] + 1j * float_array[..., 3]
     return i1, i2
 
 
 def complex_to_quaternions(i1, i2):
-    q = np.zeros((len(i1), len(i1[0])), dtype=quaternion.quaternion)
-    for i in range(len(i1)):
-        for j in range(len(i1[0])):
-            q[i][j] = np.quaternion(i1[i][j].real, i2[i][j].imag, i2[i][j].real, i1[i][j].imag)
-    return q
+    dim_array = list(i1.shape)
+    dim_array.append(4)
+
+    float_array = np.zeros(tuple(dim_array))
+
+    float_array[..., 0] = np.real(i1)
+    float_array[..., 1] = np.real(i2)
+    float_array[..., 2] = np.imag(i1)
+    float_array[..., 3] = np.imag(i2)
+
+    return quaternion.as_quat_array(float_array)
 
 
 def centralize_transform(f):
-    for i in range(len(f)):
-        for j in range(len(f[0])):
-            f[i, j] = f[i, j] * (-1) ** (i + j)
-    return f
+    mask = [1, -1]*(len(f[0])//2)
+    mask += mask if len(f[0]) % 2 != 0 else [-1*i for i in mask]
+    mask = np.array(mask*(len(f)//2)).reshape(f.shape)
+    return f*mask
 
 
-def qft(q):
+def qfft(q):
     i1, i2 = quaternions_to_complex(q)
     I1 = fftn(i1)
     I2 = fftn(i2)
@@ -53,7 +51,7 @@ def qft(q):
     return Q
 
 
-def iqft(Q):
+def iqfft(Q):
     I1, I2 = quaternions_to_complex(Q)
     i1 = ifftn(I1)
     i2 = ifftn(I2)
@@ -61,8 +59,11 @@ def iqft(Q):
     return q
 
 
-def image_filtration(Q, H):
-    return centralize_transform(iqft(H * Q))
+def frequency_filtration(Q, H):
+    start = time.time()
+    filtered_frequency = iqfft(H * Q)
+    end = time.time()
+    return centralize_transform(filtered_frequency), end - start
 
 
 def fill_zeros(f):
@@ -97,39 +98,12 @@ def butterworth_filter(F, band, D=50, order=2):
 def quaternion_filtration(image, filter):
     f = fill_zeros(image)
     q = rgb_to_quaternions(f)
-    Q = qft(centralize_transform(q))
+    Q = qfft(centralize_transform(q))
     if filter['name'] == 'ideal_filter':
         H = ideal_filter(Q, filter['band'])
     elif filter['name'] == 'butterworth_filter':
         H = butterworth_filter(Q, filter['band'])
-    g_quat = image_filtration(Q, H)[:len(f), :len(f[0])]
+    g_quat, t = frequency_filtration(Q, H)
+    g_quat = g_quat[:len(image), :len(image[0])]
     g_rgb = quaternions_to_rgb(g_quat)
-    return g_rgb
-
-
-'''
-f = cv2.imread('images/cat.png')
-fp = fill_zeros(f)
-q = rgb_to_quaternions(fp)
-Q = qft(centralize_transform(q))
-
-H = ideal_filter(Q, 50, 'highPass')
-g_quat = image_filtration(Q, H)[:len(f), :len(f[0])]
-g_rgb = quaternions_to_rgb(g_quat)
-cv2.imwrite('images/idealHighPassQuat.png', g_rgb)
-
-H = ideal_filter(Q, 50, 'lowPass')
-g_quat = image_filtration(Q, H)[:len(f), :len(f[0])]
-g_rgb = quaternions_to_rgb(g_quat)
-cv2.imwrite('images/idealLowPassQuat.png', g_rgb)
-
-H = butterworthFilter(Q, 50, 2, 'highPass')
-g_quat = image_filtration(Q, H)[:len(f), :len(f[0])]
-g_rgb = quaternions_to_rgb(g_quat)
-cv2.imwrite('images/butterworthHighPassQuat.png', g_rgb)
-
-H = butterworthFilter(Q, 50, 2, 'lowPass')
-g_quat = image_filtration(Q, H)[:len(f), :len(f[0])]
-g_rgb = quaternions_to_rgb(g_quat)
-cv2.imwrite('images/butterworthLowPassQuat.png', g_rgb)
-'''
+    return g_rgb.astype("int"), t
