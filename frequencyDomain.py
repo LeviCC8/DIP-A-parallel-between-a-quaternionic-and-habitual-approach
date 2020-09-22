@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.fftpack import fftn, ifftn
-import cv2
+import time
 
 
 def fill_zeros(f):
@@ -12,15 +12,21 @@ def fill_zeros(f):
 
 
 def centralize_transform(f):
-    for k in range(3):
-        for i in range(len(f)):
-            for j in range(len(f[0])):
-                f[i, j, k] = f[i, j, k] * (-1) ** (i + j)
-    return f
+    aux = [1, -1] * (len(f[0]) // 2)
+    aux += aux if len(f[0]) % 2 != 0 else [-1 * i for i in aux]
+    aux = np.array(aux * (len(f) // 2)).reshape(f.shape[:-1])
+    mask = np.zeros(f.shape)
+    mask[:, :, 0] = aux
+    mask[:, :, 1] = aux*(-1)
+    mask[:, :, 2] = aux
+    return f * mask
 
 
-def image_filtration(F, H):
-    return centralize_transform(ifftn(H * F).real)
+def frequency_filtration(F, H):
+    start = time.time()
+    filtered_frequency = ifftn(H * F)
+    end = time.time()
+    return centralize_transform(filtered_frequency.real), end - start
 
 
 def ideal_filter(F, band, D=50):
@@ -53,28 +59,6 @@ def habitual_filtration(image, filter):
         H = ideal_filter(F, filter['band'])
     elif filter['name'] == 'butterworth_filter':
         H = butterworth_filter(F, filter['band'])
-    g = image_filtration(F, H)[:len(f), :len(f[0]), :]
-    return g
-
-
-'''
-f = cv2.imread("images/cat.png")
-fp = fillZeros(f)
-F = fftn(centralizeTransform(fp)) 
-
-H = idealFilter(F, 50, 'highPass')
-g = imageFiltration(F, H)[:len(f), :len(f[0]), :]
-cv2.imwrite('images/idealHighPass.png', g)
-
-H = idealFilter(F, 50, 'lowPass')
-g = imageFiltration(F, H)[:len(f), :len(f[0]), :]
-cv2.imwrite('images/idealLowPass.png', g)
-
-H = butterworthFilter(F, 50, 2, 'highPass')
-g = imageFiltration(F, H)[:len(f), :len(f[0]), :]
-cv2.imwrite('images/butterworthHighPass.png', g)
-
-H = butterworthFilter(F, 50, 2, 'lowPass')
-g = imageFiltration(F, H)[:len(f), :len(f[0]), :]
-cv2.imwrite('images/butterworthLowPass.png', g)
-'''
+    g, t = frequency_filtration(F, H)
+    g = g[:len(image), :len(image[0]), :]
+    return g.astype("int"), t
